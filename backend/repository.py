@@ -1,40 +1,94 @@
 # ============================================================
-# repository.py
+# repository.py — Production Safe Version
 # ============================================================
 
 from sqlalchemy import select
 from database import AsyncSessionLocal
 from db_models import IncidentDB, MessageDB, FindingDB
 from models import Incident, Message, Finding, Hypothesis, TimelineEvent
+from datetime import datetime
 
 
 class Repository:
 
     # ─────────────────────────────────────────────
-    # Incident
+    # INCIDENT OPERATIONS
     # ─────────────────────────────────────────────
 
     async def create_incident(self, incident: Incident):
         async with AsyncSessionLocal() as session:
+
             db_inc = IncidentDB(
                 id=incident.id,
                 title=incident.title,
                 description=incident.description,
                 severity=incident.severity,
                 affected_system=incident.affected_system,
-                status=incident.status,
+                status="active",
                 threads=incident.threads,
-                timeline=[]
+                timeline=[],
+                hypothesis=None,
+                executive_summary=None,
+                executive_summary_version=0
             )
+
             session.add(db_inc)
+            await session.commit()
+
+    async def initialize_war_room(self, incident: Incident):
+        """
+        Auto-post system activation messages when incident is created.
+        """
+
+        async with AsyncSessionLocal() as session:
+
+            # Opening summary message
+            opening_message = MessageDB(
+                incident_id=incident.id,
+                thread="summary",
+                sender="WarRoom Bot",
+                sender_type="system",
+                content=(
+                    f"🚨 INCIDENT DECLARED\n\n"
+                    f"Title: {incident.title}\n"
+                    f"Severity: {incident.severity}\n"
+                    f"Affected System: {incident.affected_system}\n\n"
+                    f"{incident.description}\n\n"
+                    f"All teams begin investigation immediately."
+                )
+            )
+
+            session.add(opening_message)
+
+            # Activate each team thread
+            for thread in incident.threads:
+                if thread == "summary":
+                    continue
+
+                team_msg = MessageDB(
+                    incident_id=incident.id,
+                    thread=thread,
+                    sender="WarRoom Bot",
+                    sender_type="system",
+                    content=f"{thread.upper()} TEAM ACTIVATED. Begin investigation."
+                )
+
+                session.add(team_msg)
+
             await session.commit()
 
     async def list_incidents(self):
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(IncidentDB))
             rows = result.scalars().all()
+
             return [
-                {"id": r.id, "title": r.title, "status": r.status}
+                {
+                    "id": r.id,
+                    "title": r.title,
+                    "status": r.status,
+                    "severity": r.severity
+                }
                 for r in rows
             ]
 
@@ -44,6 +98,7 @@ class Repository:
                 select(IncidentDB).where(IncidentDB.id == incident_id)
             )
             row = result.scalar_one_or_none()
+
             if not row:
                 return None
 
@@ -53,7 +108,8 @@ class Repository:
             )
 
             timeline = [
-                TimelineEvent(**e) for e in (row.timeline or [])
+                TimelineEvent(**event)
+                for event in (row.timeline or [])
             ]
 
             return Incident(
@@ -76,29 +132,43 @@ class Repository:
                 select(IncidentDB).where(IncidentDB.id == incident.id)
             )
             db_inc = result.scalar_one_or_none()
+
             if not db_inc:
                 return
 
             db_inc.status = incident.status
+
             db_inc.hypothesis = (
                 incident.hypothesis.dict()
                 if incident.hypothesis else None
             )
+
             db_inc.timeline = [
-                e.dict() for e in incident.timeline
+                event.dict()
+                for event in incident.timeline
             ]
+
             db_inc.executive_summary = incident.executive_summary
             db_inc.executive_summary_version = incident.executive_summary_version
 
             await session.commit()
 
     # ─────────────────────────────────────────────
-    # Messages
+    # MESSAGE OPERATIONS
     # ─────────────────────────────────────────────
 
     async def add_message(self, msg: Message):
         async with AsyncSessionLocal() as session:
-            session.add(MessageDB(**msg.dict()))
+            session.add(
+                MessageDB(
+                    incident_id=msg.incident_id,
+                    thread=msg.thread,
+                    sender=msg.sender,
+                    sender_type=msg.sender_type,
+                    content=msg.content,
+                    timestamp=msg.timestamp
+                )
+            )
             await session.commit()
 
     async def get_messages(self, incident_id: str, thread: str):
@@ -108,6 +178,7 @@ class Repository:
                 .where(MessageDB.incident_id == incident_id)
                 .where(MessageDB.thread == thread)
             )
+
             rows = result.scalars().all()
 
             return [
@@ -123,7 +194,7 @@ class Repository:
             ]
 
     # ─────────────────────────────────────────────
-    # Findings
+    # FINDING OPERATIONS
     # ─────────────────────────────────────────────
 
     async def add_finding(self, incident_id: str, finding: Finding):
@@ -147,6 +218,7 @@ class Repository:
                 select(FindingDB)
                 .where(FindingDB.incident_id == incident_id)
             )
+
             rows = result.scalars().all()
 
             return [

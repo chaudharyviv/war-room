@@ -24,6 +24,7 @@ async def health():
 
 @app.post("/incidents")
 async def create_incident(payload: dict):
+
     incident = Incident(
         id=str(uuid.uuid4()),
         title=payload["title"],
@@ -31,7 +32,12 @@ async def create_incident(payload: dict):
         severity=payload.get("severity", "P1"),
         affected_system=payload["affected_system"]
     )
+
     await repo.create_incident(incident)
+
+    # 🔥 Initialize War Room
+    await repo.initialize_war_room(incident)
+
     return incident
 
 
@@ -91,3 +97,4 @@ async def executive_summary(incident_id: str):
 async def resolve(incident_id: str):
     orchestrator = OrchestratorAgent(incident_id, repo)
     return await orchestrator.resolve_incident()
+
