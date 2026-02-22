@@ -281,7 +281,7 @@ elif page == "Create Incident":
             commander = st.text_input("Incident Commander", placeholder="Optional")
             
             st.markdown("##### Impact Assessment")
-            affected_users = st.number_input("Affected Users (approx)", min_value=0, value=0, step=100)
+            affected_users = st.number_input("Affected Users (approx)", min_value=0, value=0, step=500)
             affected_services = st.text_input("Affected Services", placeholder="Comma-separated")
         
         description = st.text_area(
@@ -290,7 +290,7 @@ elif page == "Create Incident":
             height=150
         )
         
-        submitted = st.form_submit_button("🚀 Declare Incident", use_container_width=True)
+        submitted = st.form_submit_button("🚀 Record Incident", use_container_width=True)
         
         if submitted:
             if not title or not description or not affected_system:
@@ -314,16 +314,16 @@ elif page == "Create Incident":
                         payload["impact"]["affected_services"] = [s.strip() for s in affected_services.split(",") if s.strip()]
                 
                 # Show progress
-                with st.spinner("Declaring incident..."):
+                with st.spinner("Recording incident..."):
                     result = api_post("/incidents", payload)
                 
                 if result:
-                    st.success("✅ Incident declared successfully! War Room activated.")
+                    st.success("✅ Incident Recorded successfully! War Room activated.")
                     st.balloons()
                     st.session_state.selected_incident = result.get('id')
                     st.rerun()
                 else:
-                    st.error("❌ Failed to declare incident. Please check the backend logs.")
+                    st.error("❌ Failed to record incident. Please check the backend logs.")
 
 
 # ─────────────────────────────────────────────
