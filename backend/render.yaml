@@ -14,17 +14,6 @@ services:
           name: war-room-db
           property: connectionString
 
-  # Frontend
-  - type: web
-    name: war-room-frontend
-    runtime: python
-    plan: free
-    buildCommand: pip install -r requirements_frontend.txt
-    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
-    envVars:
-      - key: BACKEND_URL
-        value: https://war-room-backend.onrender.com
-
 databases:
   - name: war-room-db
     databaseName: warroom
