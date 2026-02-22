@@ -5,8 +5,9 @@
 import streamlit as st
 import requests
 import os
+import json
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 # Configuration
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -97,28 +98,74 @@ st.markdown("""
 
 
 # ─────────────────────────────────────────────
-# API Helpers
+# Enhanced API Helpers with Better Error Handling
 # ─────────────────────────────────────────────
 
-def api_get(endpoint: str) -> Any:
-    """GET request to backend"""
+def api_get(endpoint: str) -> Optional[Any]:
+    """GET request to backend with improved error handling"""
     try:
-        r = requests.get(f"{BACKEND_URL}{endpoint}", timeout=10)
-        r.raise_for_status()
-        return r.json()
+        url = f"{BACKEND_URL}{endpoint}"
+        st.session_state['last_api_call'] = url  # For debugging
+        
+        r = requests.get(url, timeout=10)
+        
+        if r.status_code == 200:
+            return r.json()
+        else:
+            st.error(f"API Error ({r.status_code}): {r.text}")
+            return None
+            
+    except requests.exceptions.ConnectionError:
+        st.error(f"❌ Cannot connect to backend at {BACKEND_URL}. Make sure the server is running.")
+        return None
+    except requests.exceptions.Timeout:
+        st.error("❌ Backend request timed out. Please try again.")
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Request failed: {str(e)}")
+        return None
+    except json.JSONDecodeError:
+        st.error("❌ Invalid response from backend (not JSON)")
+        return None
     except Exception as e:
-        st.error(f"API Error: {str(e)}")
+        st.error(f"❌ Unexpected error: {str(e)}")
         return None
 
 
-def api_post(endpoint: str, payload: Dict) -> Any:
-    """POST request to backend"""
+def api_post(endpoint: str, payload: Dict) -> Optional[Any]:
+    """POST request to backend with improved error handling"""
     try:
-        r = requests.post(f"{BACKEND_URL}{endpoint}", json=payload, timeout=10)
-        r.raise_for_status()
-        return r.json()
+        url = f"{BACKEND_URL}{endpoint}"
+        st.session_state['last_api_call'] = url
+        st.session_state['last_payload'] = payload
+        
+        r = requests.post(url, json=payload, timeout=10)
+        
+        if r.status_code == 200:
+            return r.json()
+        elif r.status_code == 500:
+            # Try to parse error details
+            try:
+                error_detail = r.json()
+                st.error(f"❌ Server Error: {error_detail.get('detail', 'Unknown error')}")
+            except:
+                st.error(f"❌ Server Error (500): {r.text}")
+            return None
+        else:
+            st.error(f"❌ API Error ({r.status_code}): {r.text}")
+            return None
+            
+    except requests.exceptions.ConnectionError:
+        st.error(f"❌ Cannot connect to backend at {BACKEND_URL}. Make sure the server is running.")
+        return None
+    except requests.exceptions.Timeout:
+        st.error("❌ Backend request timed out. Please try again.")
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Request failed: {str(e)}")
+        return None
     except Exception as e:
-        st.error(f"API Error: {str(e)}")
+        st.error(f"❌ Unexpected error: {str(e)}")
         return None
 
 
@@ -170,6 +217,14 @@ with st.sidebar:
     
     st.metric("Active Incidents", active_count)
     st.metric("Total Incidents", len(all_incidents))
+    
+    # Debug info (remove in production)
+    if st.checkbox("Show Debug Info"):
+        st.json({
+            "backend_url": BACKEND_URL,
+            "last_call": st.session_state.get('last_api_call', 'None'),
+            "last_payload": st.session_state.get('last_payload', 'None')
+        })
 
 
 # ─────────────────────────────────────────────
@@ -241,25 +296,34 @@ elif page == "Create Incident":
             if not title or not description or not affected_system:
                 st.error("⚠️ Please fill in all required fields (marked with *)")
             else:
+                # Build payload
                 payload = {
                     "title": title,
                     "description": description,
                     "severity": severity,
                     "affected_system": affected_system,
                     "incident_commander": commander if commander else None,
-                    "impact": {
-                        "affected_users": affected_users if affected_users > 0 else None,
-                        "affected_services": [s.strip() for s in affected_services.split(",")] if affected_services else []
-                    }
                 }
                 
-                result = api_post("/incidents", payload)
+                # Add impact only if there's data
+                if affected_users > 0 or affected_services:
+                    payload["impact"] = {}
+                    if affected_users > 0:
+                        payload["impact"]["affected_users"] = affected_users
+                    if affected_services:
+                        payload["impact"]["affected_services"] = [s.strip() for s in affected_services.split(",") if s.strip()]
+                
+                # Show progress
+                with st.spinner("Declaring incident..."):
+                    result = api_post("/incidents", payload)
                 
                 if result:
                     st.success("✅ Incident declared successfully! War Room activated.")
                     st.balloons()
-                    st.session_state.selected_incident = result['id']
+                    st.session_state.selected_incident = result.get('id')
                     st.rerun()
+                else:
+                    st.error("❌ Failed to declare incident. Please check the backend logs.")
 
 
 # ─────────────────────────────────────────────
@@ -309,9 +373,10 @@ if 'selected_incident' in st.session_state:
         del st.session_state.selected_incident
         st.rerun()
     
-    # Load incident data
-    incident = api_get(f"/incidents/{incident_id}")
-    stats = api_get(f"/incidents/{incident_id}/stats")
+    # Load incident data with loading indicator
+    with st.spinner("Loading incident details..."):
+        incident = api_get(f"/incidents/{incident_id}")
+        stats = api_get(f"/incidents/{incident_id}/stats")
     
     if not incident:
         st.error("Incident not found")
@@ -327,13 +392,16 @@ if 'selected_incident' in st.session_state:
     with col1:
         st.metric("Severity", incident['severity'])
     with col2:
-        st.metric("Status", incident['status'].title())
+        status_display = incident['status'].title() if isinstance(incident['status'], str) else str(incident['status'])
+        st.metric("Status", status_display)
     with col3:
         st.metric("Teams Active", stats.get('teams_active', 0) if stats else 0)
     with col4:
         st.metric("Findings", stats.get('total_findings', 0) if stats else 0)
     with col5:
-        confidence = incident.get('hypothesis', {}).get('confidence', 0) if incident.get('hypothesis') else 0
+        confidence = 0
+        if incident.get('hypothesis') and isinstance(incident['hypothesis'], dict):
+            confidence = incident['hypothesis'].get('confidence', 0)
         st.metric("Confidence", f"{confidence:.0%}")
     
     st.markdown("---")
@@ -347,97 +415,100 @@ if 'selected_incident' in st.session_state:
     with tab1:
         threads = incident.get('threads', [])
         
-        # Thread selector
-        selected_thread = st.selectbox(
-            "Select Thread",
-            threads,
-            format_func=lambda x: f"{'📋 ' if x == 'summary' else '🔧 '}{x.upper()} TEAM"
-        )
-        
-        st.markdown(f"### {selected_thread.upper()} Thread")
-        
-        # Load messages
-        messages = api_get(f"/incidents/{incident_id}/threads/{selected_thread}") or []
-        
-        # Message display area
-        message_container = st.container()
-        
-        with message_container:
-            if not messages:
-                st.info(f"No messages in {selected_thread} thread yet.")
-            else:
-                for msg in messages:
-                    sender_type = msg.get('sender_type', 'engineer')
-                    css_class = f"message-{sender_type}"
-                    
-                    # Emoji based on sender type
-                    emoji = {
-                        'system': '🟢',
-                        'engineer': '👤',
-                        'agent': '🤖',
-                        'commander': '⭐'
-                    }.get(sender_type, '💬')
-                    
-                    is_critical = msg.get('is_critical', False)
-                    
-                    st.markdown(
-                        f'<div class="{css_class}">'
-                        f'<strong>{emoji} {msg["sender"]}</strong> '
-                        f'<span style="float:right;color:#6b7280;font-size:0.875rem;">{format_timestamp(msg.get("timestamp", ""))}</span>'
-                        f'{"<br><span style=\"color:red;font-weight:bold;\">🚨 CRITICAL</span>" if is_critical else ""}'
-                        f'<br>{msg["content"]}'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
-        
-        st.markdown("---")
-        
-        # Input form (only for non-summary threads)
-        if selected_thread != "summary":
-            st.markdown(f"### 📝 Post Update to {selected_thread.upper()}")
+        if not threads:
+            st.warning("No threads available for this incident.")
+        else:
+            # Thread selector
+            selected_thread = st.selectbox(
+                "Select Thread",
+                threads,
+                format_func=lambda x: f"{'📋 ' if x == 'summary' else '🔧 '}{x.upper()} TEAM"
+            )
             
-            with st.form(f"post_{selected_thread}", clear_on_submit=True):
-                col_name, col_priority = st.columns([3, 1])
-                
-                with col_name:
-                    engineer_name = st.text_input(
-                        "Your Name",
-                        key=f"name_{selected_thread}",
-                        placeholder="Engineer Name"
-                    )
-                
-                with col_priority:
-                    priority = st.selectbox(
-                        "Priority",
-                        ["normal", "high", "critical"],
-                        key=f"priority_{selected_thread}"
-                    )
-                
-                message_input = st.text_area(
-                    "Update",
-                    key=f"msg_{selected_thread}",
-                    placeholder="Share your findings, blockers, or questions...",
-                    height=100
-                )
-                
-                submit_msg = st.form_submit_button("📤 Send Update", use_container_width=True)
-                
-                if submit_msg:
-                    if engineer_name and message_input:
-                        payload = {
-                            "thread": selected_thread,
-                            "engineer_name": engineer_name,
-                            "content": message_input,
-                            "priority": priority
-                        }
+            st.markdown(f"### {selected_thread.upper()} Thread")
+            
+            # Load messages
+            messages = api_get(f"/incidents/{incident_id}/threads/{selected_thread}") or []
+            
+            # Message display area
+            message_container = st.container()
+            
+            with message_container:
+                if not messages:
+                    st.info(f"No messages in {selected_thread} thread yet.")
+                else:
+                    for msg in messages:
+                        sender_type = msg.get('sender_type', 'engineer')
+                        css_class = f"message-{sender_type}"
                         
-                        result = api_post(f"/incidents/{incident_id}/message", payload)
+                        # Emoji based on sender type
+                        emoji = {
+                            'system': '🟢',
+                            'engineer': '👤',
+                            'agent': '🤖',
+                            'commander': '⭐'
+                        }.get(sender_type, '💬')
                         
-                        if result:
-                            st.success("✅ Update posted!")
-                            st.rerun()
-                    else:
-                        st.warning("Please enter your name and message.")
+                        is_critical = msg.get('is_critical', False)
+                        
+                        st.markdown(
+                            f'<div class="{css_class}">'
+                            f'<strong>{emoji} {msg["sender"]}</strong> '
+                            f'<span style="float:right;color:#6b7280;font-size:0.875rem;">{format_timestamp(msg.get("timestamp", ""))}</span>'
+                            f'{"<br><span style=\"color:red;font-weight:bold;\">🚨 CRITICAL</span>" if is_critical else ""}'
+                            f'<br>{msg["content"]}'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+            
+            st.markdown("---")
+            
+            # Input form (only for non-summary threads)
+            if selected_thread != "summary":
+                st.markdown(f"### 📝 Post Update to {selected_thread.upper()}")
+                
+                with st.form(f"post_{selected_thread}", clear_on_submit=True):
+                    col_name, col_priority = st.columns([3, 1])
+                    
+                    with col_name:
+                        engineer_name = st.text_input(
+                            "Your Name",
+                            key=f"name_{selected_thread}",
+                            placeholder="Engineer Name"
+                        )
+                    
+                    with col_priority:
+                        priority = st.selectbox(
+                            "Priority",
+                            ["normal", "high", "critical"],
+                            key=f"priority_{selected_thread}"
+                        )
+                    
+                    message_input = st.text_area(
+                        "Update",
+                        key=f"msg_{selected_thread}",
+                        placeholder="Share your findings, blockers, or questions...",
+                        height=100
+                    )
+                    
+                    submit_msg = st.form_submit_button("📤 Send Update", use_container_width=True)
+                    
+                    if submit_msg:
+                        if engineer_name and message_input:
+                            payload = {
+                                "thread": selected_thread,
+                                "engineer_name": engineer_name,
+                                "content": message_input,
+                                "priority": priority
+                            }
+                            
+                            result = api_post(f"/incidents/{incident_id}/message", payload)
+                            
+                            if result:
+                                st.success("✅ Update posted!")
+                                st.rerun()
+                        else:
+                            st.warning("Please enter your name and message.")
     
     # Tab 2: Overview
     with tab2:
@@ -451,9 +522,9 @@ if 'selected_incident' in st.session_state:
                 st.write(f"**Commander:** {incident['incident_commander']}")
             
             st.markdown("### 💡 Current Hypothesis")
-            if incident.get('hypothesis'):
+            if incident.get('hypothesis') and isinstance(incident['hypothesis'], dict):
                 hyp = incident['hypothesis']
-                st.success(f"**Root Cause:** {hyp['root_cause']}")
+                st.success(f"**Root Cause:** {hyp.get('root_cause', 'Unknown')}")
                 st.progress(hyp.get('confidence', 0))
                 st.caption(f"Confidence: {hyp.get('confidence', 0):.0%} | Version: {hyp.get('version', 1)}")
                 
@@ -467,32 +538,36 @@ if 'selected_incident' in st.session_state:
         with col_right:
             st.markdown("### 📊 Impact")
             impact = incident.get('impact', {})
-            if impact:
+            if impact and isinstance(impact, dict):
                 if impact.get('affected_users'):
                     st.metric("Affected Users", f"{impact['affected_users']:,}")
                 if impact.get('affected_services'):
                     st.write("**Services:**")
                     for svc in impact['affected_services']:
                         st.write(f"- {svc}")
+            else:
+                st.info("No impact data available.")
             
             st.markdown("### 🎯 Quick Actions")
             
-            if incident['status'] != "resolved":
+            if incident.get('status') != "resolved":
                 if st.button("🔄 Trigger Commander Analysis", use_container_width=True):
                     with st.spinner("Analyzing..."):
-                        api_post(f"/incidents/{incident_id}/analyze", {})
-                        st.success("Analysis triggered!")
-                        st.rerun()
+                        result = api_post(f"/incidents/{incident_id}/analyze", {})
+                        if result:
+                            st.success("Analysis triggered!")
+                            st.rerun()
                 
                 if st.button("📣 Generate Executive Summary", use_container_width=True):
                     summary_data = api_get(f"/incidents/{incident_id}/executive-summary")
-                    if summary_data:
-                        st.success(summary_data['summary'])
+                    if summary_data and isinstance(summary_data, dict):
+                        st.success(summary_data.get('summary', 'No summary available'))
                 
                 if st.button("✅ Resolve Incident", use_container_width=True):
-                    api_post(f"/incidents/{incident_id}/resolve", {})
-                    st.success("Incident marked as resolved!")
-                    st.rerun()
+                    result = api_post(f"/incidents/{incident_id}/resolve", {})
+                    if result:
+                        st.success("Incident marked as resolved!")
+                        st.rerun()
     
     # Tab 3: Actions
     with tab3:
@@ -523,13 +598,13 @@ if 'selected_incident' in st.session_state:
             # Filter actions
             filtered_actions = [
                 a for a in actions
-                if a['status'] in filter_status and a['priority'] in filter_priority
+                if a.get('status') in filter_status and a.get('priority') in filter_priority
             ]
             
             st.caption(f"Showing {len(filtered_actions)} of {len(actions)} actions")
             
             for action in filtered_actions:
-                status_class = f"action-{action['status']}"
+                status_class = f"action-{action.get('status', 'pending')}"
                 
                 with st.container():
                     st.markdown(f'<div class="{status_class}" style="padding:1rem;margin:0.5rem 0;border-radius:8px;">', unsafe_allow_html=True)
@@ -542,28 +617,33 @@ if 'selected_incident' in st.session_state:
                             'high': '🟠',
                             'normal': '🟢',
                             'low': '⚪'
-                        }.get(action['priority'], '🟢')
+                        }.get(action.get('priority', 'normal'), '🟢')
                         
-                        st.markdown(f"{priority_emoji} **{action['description']}**")
-                        st.caption(f"Assigned to: {action['assigned_to'].upper()}")
+                        st.markdown(f"{priority_emoji} **{action.get('description', 'No description')}**")
+                        st.caption(f"Assigned to: {action.get('assigned_to', 'Unknown').upper()}")
                     
                     with cols[1]:
-                        st.markdown(get_status_badge(action['status']), unsafe_allow_html=True)
+                        st.markdown(get_status_badge(action.get('status', 'unknown')), unsafe_allow_html=True)
                     
                     with cols[2]:
-                        if action['status'] != "completed":
+                        if action.get('status') != "completed":
+                            current_status = action.get('status', 'pending')
+                            status_options = ["pending", "in_progress", "completed", "blocked"]
+                            current_index = status_options.index(current_status) if current_status in status_options else 0
+                            
                             new_status = st.selectbox(
                                 "Update",
-                                ["pending", "in_progress", "completed", "blocked"],
-                                key=f"action_status_{action['id']}",
-                                index=["pending", "in_progress", "completed", "blocked"].index(action['status']),
+                                status_options,
+                                key=f"action_status_{action.get('id', 'unknown')}",
+                                index=current_index,
                                 label_visibility="collapsed"
                             )
                             
-                            if new_status != action['status']:
-                                payload = {"action_id": action['id'], "status": new_status}
-                                api_post(f"/incidents/{incident_id}/actions/{action['id']}", payload)
-                                st.rerun()
+                            if new_status != current_status and st.button("Update", key=f"update_{action.get('id', 'unknown')}"):
+                                payload = {"action_id": action.get('id'), "status": new_status}
+                                result = api_post(f"/incidents/{incident_id}/actions/{action.get('id')}", payload)
+                                if result:
+                                    st.rerun()
                     
                     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -599,7 +679,7 @@ if 'selected_incident' in st.session_state:
                 team_badge = f"[{team.upper()}]" if team else ""
                 
                 st.markdown(
-                    f"**{timestamp}** {emoji} {team_badge} {event['description']}"
+                    f"**{timestamp}** {emoji} {team_badge} {event.get('description', 'No description')}"
                 )
                 st.markdown("---")
     
@@ -617,24 +697,25 @@ if 'selected_incident' in st.session_state:
             
             for idx, (team_name, state) in enumerate(team_states.items()):
                 with cols[idx % 3]:
-                    status = state.get('status', 'standby')
-                    status_class = f"team-{status}"
-                    
-                    st.markdown(f'<div class="team-card {status_class}">', unsafe_allow_html=True)
-                    
-                    st.markdown(f"### {team_name.upper()}")
-                    st.markdown(get_status_badge(status), unsafe_allow_html=True)
-                    
-                    st.metric("Findings", state.get('findings_count', 0))
-                    st.metric("Active Tasks", len(state.get('active_tasks', [])))
-                    
-                    if state.get('assigned_engineers'):
-                        st.caption("Engineers: " + ", ".join(state['assigned_engineers']))
-                    
-                    if state.get('blocked_reason'):
-                        st.error(f"⚠️ Blocked: {state['blocked_reason']}")
-                    
-                    if state.get('needs_help_from'):
-                        st.warning(f"Needs help from: {', '.join(state['needs_help_from'])}")
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    if isinstance(state, dict):
+                        status = state.get('status', 'standby')
+                        status_class = f"team-{status}"
+                        
+                        st.markdown(f'<div class="team-card {status_class}">', unsafe_allow_html=True)
+                        
+                        st.markdown(f"### {team_name.upper()}")
+                        st.markdown(get_status_badge(status), unsafe_allow_html=True)
+                        
+                        st.metric("Findings", state.get('findings_count', 0))
+                        st.metric("Active Tasks", len(state.get('active_tasks', [])))
+                        
+                        if state.get('assigned_engineers'):
+                            st.caption("Engineers: " + ", ".join(state['assigned_engineers']))
+                        
+                        if state.get('blocked_reason'):
+                            st.error(f"⚠️ Blocked: {state['blocked_reason']}")
+                        
+                        if state.get('needs_help_from'):
+                            st.warning(f"Needs help from: {', '.join(state['needs_help_from'])}")
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
