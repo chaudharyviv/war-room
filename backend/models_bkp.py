@@ -66,13 +66,6 @@ class TeamState(BaseModel):
     blocked_reason: Optional[str] = None
     needs_help_from: List[str] = Field(default_factory=list)
 
-    class Config:
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            TeamStatus: lambda v: v.value,
-        }
-
 
 class Action(BaseModel):
     """Actionable task assigned to teams"""
@@ -86,14 +79,6 @@ class Action(BaseModel):
     completed_at: Optional[datetime] = None
     blocking_issues: List[str] = Field(default_factory=list)
 
-    class Config:
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat() if v else None,
-            MessagePriority: lambda v: v.value,
-            ActionStatus: lambda v: v.value,
-        }
-
 
 class Hypothesis(BaseModel):
     """Current understanding of root cause"""
@@ -104,11 +89,6 @@ class Hypothesis(BaseModel):
     proposed_by: str = "Strategic Commander"
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
-
 
 class TimelineEvent(BaseModel):
     """Event in incident timeline"""
@@ -118,11 +98,6 @@ class TimelineEvent(BaseModel):
     severity: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
 
 
 class Impact(BaseModel):
@@ -173,17 +148,6 @@ class Incident(BaseModel):
     executive_summary: Optional[str] = None
     executive_summary_version: float = 0.0
 
-    class Config:
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            IncidentSeverity: lambda v: v.value,
-            IncidentStatus: lambda v: v.value,
-            TeamStatus: lambda v: v.value,
-            MessagePriority: lambda v: v.value,
-            ActionStatus: lambda v: v.value,
-        }
-
 
 class Message(BaseModel):
     """Communication message"""
@@ -198,13 +162,6 @@ class Message(BaseModel):
     attachments: List[str] = Field(default_factory=list)
     is_critical: bool = False
 
-    class Config:
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            MessagePriority: lambda v: v.value,
-        }
-
 
 class Finding(BaseModel):
     """Investigation finding"""
@@ -217,11 +174,6 @@ class Finding(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     related_actions: List[str] = Field(default_factory=list)
     validated: bool = False
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
 
 
 # ─────────────────────────────────────────────
@@ -236,13 +188,6 @@ class CreateIncidentRequest(BaseModel):
     impact: Optional[Impact] = None
     incident_commander: Optional[str] = None
 
-    class Config:
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            IncidentSeverity: lambda v: v.value,
-        }
-
 
 class AddMessageRequest(BaseModel):
     thread: str
@@ -250,17 +195,11 @@ class AddMessageRequest(BaseModel):
     content: str
     priority: MessagePriority = MessagePriority.NORMAL
 
-    class Config:
-        use_enum_values = True
-
 
 class UpdateActionRequest(BaseModel):
     action_id: str
     status: ActionStatus
     notes: Optional[str] = None
-
-    class Config:
-        use_enum_values = True
 
 
 class TeamStatusUpdate(BaseModel):
@@ -268,6 +207,3 @@ class TeamStatusUpdate(BaseModel):
     status: TeamStatus
     blocked_reason: Optional[str] = None
     needs_help_from: List[str] = Field(default_factory=list)
-
-    class Config:
-        use_enum_values = True

@@ -5,27 +5,16 @@
 import os
 import json
 import uuid
-import logging
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import List, Dict
 from openai import AsyncOpenAI
 from models import (
     Hypothesis, TimelineEvent, Action, TeamState, TeamStatus,
     MessagePriority, ActionStatus, Message
 )
-
-# Set up logging
-logger = logging.getLogger(__name__)
+from datetime import datetime
 
 MODEL = "gpt-4o"
-
-# Check if API key is available
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    logger.warning("⚠️ OPENAI_API_KEY environment variable is not set. AI features will be disabled.")
-    client = None
-else:
-    client = AsyncOpenAI(api_key=api_key)
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 class StrategicCommander:
@@ -47,7 +36,6 @@ class StrategicCommander:
         
         incident = await self.repo.get_incident(self.incident_id)
         if not incident:
-            logger.error(f"Incident {self.incident_id} not found")
             return None
 
         findings = await self.repo.get_findings(self.incident_id)
@@ -56,7 +44,6 @@ class StrategicCommander:
         analysis = await self._analyze_situation(incident, findings)
         
         if not analysis:
-            logger.warning(f"No analysis generated for incident {self.incident_id}")
             return None
 
         # Apply updates
@@ -82,11 +69,6 @@ class StrategicCommander:
 
     async def _analyze_situation(self, incident, findings):
         """Get LLM analysis of current situation"""
-        
-        # If OpenAI client is not available, return a basic analysis
-        if not client:
-            logger.info("OpenAI client not available, using basic analysis")
-            return self._get_basic_analysis(incident, findings)
         
         # Prepare context
         findings_by_team = {}
@@ -191,36 +173,8 @@ RULES:
             
             return json.loads(response.choices[0].message.content)
         except Exception as e:
-            logger.error(f"Commander analysis error: {e}")
-            return self._get_basic_analysis(incident, findings)
-    
-    def _get_basic_analysis(self, incident, findings):
-        """Provide basic analysis when AI is unavailable"""
-        
-        # Check for blockers
-        blockers = []
-        for team_name, state in incident.team_states.items():
-            if state.status == TeamStatus.BLOCKED and state.blocked_reason:
-                blockers.append(f"{team_name}: {state.blocked_reason}")
-        
-        # Check for root cause candidates
-        root_cause_candidates = []
-        for f in findings:
-            if f.signal_type == "root_cause_candidate":
-                root_cause_candidates.append(f"{f.engineer} in {f.thread}: {f.raw_text[:50]}...")
-        
-        return {
-            "updated_hypothesis": None,
-            "new_actions": [],
-            "team_coordination": [],
-            "escalation_needed": {
-                "escalate": False,
-                "reason": None,
-                "escalate_to": None
-            },
-            "critical_blockers": blockers[:3],
-            "next_steps_summary": f"AI analysis unavailable. {len(blockers)} blocker(s) identified. {len(root_cause_candidates)} root cause candidate(s) found."
-        }
+            print(f"Commander analysis error: {e}")
+            return None
 
     async def _update_hypothesis(self, incident, analysis):
         """Update incident hypothesis based on analysis"""
