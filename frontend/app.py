@@ -293,37 +293,31 @@ elif page == "Create Incident":
         submitted = st.form_submit_button("🚀 Declare Incident", use_container_width=True)
         
         if submitted:
-            if not title or not description or not affected_system:
-                st.error("⚠️ Please fill in all required fields (marked with *)")
-            else:
-                # Build payload
-                payload = {
-                    "title": title,
-                    "description": description,
-                    "severity": severity,
-                    "affected_system": affected_system,
-                    "incident_commander": commander if commander else None,
-                }
-                
-                # Add impact only if there's data
-                if affected_users > 0 or affected_services:
-                    payload["impact"] = {}
-                    if affected_users > 0:
-                        payload["impact"]["affected_users"] = affected_users
-                    if affected_services:
-                        payload["impact"]["affected_services"] = [s.strip() for s in affected_services.split(",") if s.strip()]
-                
-                # Show progress
-                with st.spinner("Declaring incident..."):
-                    result = api_post("/incidents", payload)
-                
-                if result:
-                    st.success("✅ Incident declared successfully! War Room activated.")
-                    st.balloons()
-                    st.session_state.selected_incident = result.get('id')
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to declare incident. Please check the backend logs.")
+    if not title or not description or not affected_system:
+        st.error("⚠️ Please fill in all required fields (marked with *)")
+    else:
+        payload = {
+            "title": title,
+            "description": description,
+            "severity": severity,
+            "affected_system": affected_system,
+            "incident_commander": commander if commander else None,
+            "impact": {
+                "affected_users": affected_users if affected_users > 0 else None,
+                "affected_services": [s.strip() for s in affected_services.split(",")] if affected_services else []
+            }
+        }
+
+        with st.spinner("Creating incident..."):
+            result = api_post("/incidents", payload)
+
+        if result:
+            st.success("✅ Incident declared successfully! War Room activated.")
+            st.balloons()
+            st.session_state.selected_incident = result['id']
+            st.rerun()
+        else:
+            st.error("❌ Failed to create incident. Please check backend logs.")
 
 
 # ─────────────────────────────────────────────
