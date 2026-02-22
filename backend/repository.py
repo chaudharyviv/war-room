@@ -2,7 +2,7 @@
 # repository.py — Data Layer
 # ============================================================
 
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 from sqlalchemy.exc import SQLAlchemyError
 from database import AsyncSessionLocal
 from db_models import IncidentDB, MessageDB, FindingDB
@@ -176,6 +176,21 @@ class Repository:
             except Exception as e:
                 logger.error(f"❌ Error listing incidents: {str(e)}")
                 return []
+
+    async def delete_incident(self, incident_id: str) -> bool:
+        """Delete incident and all its messages and findings. Returns True if deleted."""
+        async with AsyncSessionLocal() as session:
+            try:
+                await session.execute(delete(MessageDB).where(MessageDB.incident_id == incident_id))
+                await session.execute(delete(FindingDB).where(FindingDB.incident_id == incident_id))
+                await session.execute(delete(IncidentDB).where(IncidentDB.id == incident_id))
+                await session.commit()
+                logger.info(f"✅ Deleted incident: {incident_id}")
+                return True
+            except Exception as e:
+                logger.error(f"❌ Error deleting incident {incident_id}: {str(e)}")
+                await session.rollback()
+                return False
 
     async def get_incident(self, incident_id: str) -> Optional[Incident]:
         """Get incident by ID with full details"""
