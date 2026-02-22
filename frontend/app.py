@@ -255,13 +255,15 @@ with st.sidebar:
 if page == "Dashboard":
     st.markdown('<div class="main-header">🎯 Strategic Command Dashboard</div>', unsafe_allow_html=True)
     
-    incidents = api_get("/incidents?status=investigating") or []
+    all_incidents = api_get("/incidents") or []
+    resolved_statuses = ("resolved", "postmortem")
+    active_incidents = [inc for inc in all_incidents if (inc.get("status") or "").lower() not in resolved_statuses]
     
-    if not incidents:
+    if not active_incidents:
         st.info("✅ No active incidents. System operational.")
     else:
-        # Show active incidents
-        for inc in incidents[:5]:
+        # Show active incidents (declared, investigating, identified, mitigating)
+        for inc in active_incidents[:5]:
             with st.container():
                 cols = st.columns([3, 1, 1, 1])
                 
