@@ -3,8 +3,12 @@
 # ============================================================
 
 import os
+import logging
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -28,3 +32,18 @@ AsyncSessionLocal = sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False
 )
+
+
+async def run_schema_migrations():
+    """
+    Add any missing columns to existing tables (e.g. after code deploy).
+    Safe to run on every startup; Render and other hosts pick this up automatically.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE incidents
+            ADD COLUMN IF NOT EXISTS collaboration_active BOOLEAN DEFAULT false,
+            ADD COLUMN IF NOT EXISTS collaboration_teams JSONB DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS collaboration_consensus JSONB NULL
+        """))
+    logger.info("✅ Schema migrations applied (collaboration columns)")

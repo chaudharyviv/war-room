@@ -20,7 +20,7 @@ from agents import OrchestratorAgent
 from executive_summary import ExecutiveSummaryGenerator
 from strategic_commander import StrategicCommander
 from db_models import Base
-from database import engine
+from database import engine, run_schema_migrations
 
 # Set up logging
 logging.basicConfig(
@@ -70,13 +70,15 @@ async def startup():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        
+
+        await run_schema_migrations()
+
         # Test database connection
         from sqlalchemy import text
         async with engine.connect() as conn:
             result = await conn.execute(text("SELECT 1"))
             logger.info(f"✅ Database connection successful: {result.scalar()}")
-        
+
         logger.info("✅ War Room Backend initialized")
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
