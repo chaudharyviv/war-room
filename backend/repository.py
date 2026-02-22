@@ -233,7 +233,10 @@ class Repository:
                     actions=actions,
                     impact=impact,
                     executive_summary=row.executive_summary,
-                    executive_summary_version=row.executive_summary_version
+                    executive_summary_version=row.executive_summary_version,
+                    collaboration_active=row.collaboration_active or False,
+                    collaboration_teams=row.collaboration_teams or [],
+                    collaboration_consensus=row.collaboration_consensus
                 )
             except Exception as e:
                 logger.error(f"❌ Error getting incident {incident_id}: {str(e)}")
@@ -290,6 +293,11 @@ class Repository:
                 # Update executive summary
                 db_inc.executive_summary = incident.executive_summary
                 db_inc.executive_summary_version = incident.executive_summary_version
+                
+                # Update collaboration
+                db_inc.collaboration_active = incident.collaboration_active
+                db_inc.collaboration_teams = incident.collaboration_teams
+                db_inc.collaboration_consensus = incident.collaboration_consensus
 
                 await session.commit()
                 logger.info(f"✅ Updated incident: {incident.id}")

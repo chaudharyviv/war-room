@@ -45,6 +45,11 @@ class IncidentDB(Base):
     # Executive summary
     executive_summary = Column(Text, nullable=True)
     executive_summary_version = Column(Float, default=0.0)
+    
+    # Collaboration
+    collaboration_active = Column(Boolean, default=False)
+    collaboration_teams = Column(JSONB, default=list)
+    collaboration_consensus = Column(JSONB, nullable=True)
 
 
 class MessageDB(Base):

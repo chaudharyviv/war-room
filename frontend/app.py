@@ -296,28 +296,34 @@ elif page == "Create Incident":
             if not title or not description or not affected_system:
                 st.error("⚠️ Please fill in all required fields (marked with *)")
             else:
+                # Build payload
                 payload = {
                     "title": title,
                     "description": description,
                     "severity": severity,
                     "affected_system": affected_system,
                     "incident_commander": commander if commander else None,
-                    "impact": {
-                        "affected_users": affected_users if affected_users > 0 else None,
-                        "affected_services": [s.strip() for s in affected_services.split(",")] if affected_services else []
-                    }
                 }
-
-                with st.spinner("Creating incident..."):
+                
+                # Add impact only if there's data
+                if affected_users > 0 or affected_services:
+                    payload["impact"] = {}
+                    if affected_users > 0:
+                        payload["impact"]["affected_users"] = affected_users
+                    if affected_services:
+                        payload["impact"]["affected_services"] = [s.strip() for s in affected_services.split(",") if s.strip()]
+                
+                # Show progress
+                with st.spinner("Declaring incident..."):
                     result = api_post("/incidents", payload)
-
+                
                 if result:
                     st.success("✅ Incident declared successfully! War Room activated.")
                     st.balloons()
-                    st.session_state.selected_incident = result['id']
+                    st.session_state.selected_incident = result.get('id')
                     st.rerun()
                 else:
-                    st.error("❌ Failed to create incident. Please check backend logs.")
+                    st.error("❌ Failed to declare incident. Please check the backend logs.")
 
 
 # ─────────────────────────────────────────────
@@ -400,10 +406,17 @@ if 'selected_incident' in st.session_state:
     
     st.markdown("---")
     
-    # Main content tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🧵 War Room", "📊 Overview", "🎯 Actions", "📈 Timeline", "👥 Teams"
-    ])
+    # Main content tabs - add Team Debate if collaboration is active
+    base_tabs = ["🧵 War Room", "📊 Overview", "🎯 Actions", "📈 Timeline", "👥 Teams"]
+    
+    if incident.get('collaboration_active'):
+        base_tabs.insert(1, "🤝 Team Debate")
+        tabs = st.tabs(base_tabs)
+        tab1, tab_debate, tab2, tab3, tab4, tab5 = tabs
+    else:
+        tabs = st.tabs(base_tabs)
+        tab1, tab2, tab3, tab4, tab5 = tabs
+        tab_debate = None
     
     # Tab 1: War Room (Thread Communications)
     with tab1:
@@ -503,6 +516,102 @@ if 'selected_incident' in st.session_state:
                                 st.rerun()
                         else:
                             st.warning("Please enter your name and message.")
+    
+    # Team Debate Tab (only shown when collaboration is active)
+    if tab_debate is not None:
+        with tab_debate:
+            st.markdown("### 🤝 Team Collaboration Dialogue")
+            
+            collab_teams = incident.get('collaboration_teams', [])
+            collab_consensus = incident.get('collaboration_consensus')
+            
+            if not collab_teams:
+                st.info("No active collaboration at this time.")
+            else:
+                # Show participating teams
+                st.markdown(f"**Participating Teams:** {', '.join([t.upper() for t in collab_teams])}")
+                st.markdown("---")
+                
+                # Show consensus if reached
+                if collab_consensus:
+                    consensus_type = collab_consensus.get('consensus_type', 'unknown')
+                    
+                    emoji_map = {
+                        'unanimous': '✅',
+                        'majority': '🤝',
+                        'commander_decision': '⚖️'
+                    }
+                    emoji = emoji_map.get(consensus_type, '✅')
+                    
+                    st.success(f"{emoji} **CONSENSUS REACHED**")
+                    
+                    cols = st.columns([2, 1])
+                    with cols[0]:
+                        st.markdown(f"**Root Cause:**\n\n{collab_consensus.get('consensus_hypothesis')}")
+                    with cols[1]:
+                        st.metric("Confidence", f"{collab_consensus.get('confidence', 0):.0%}")
+                        st.caption(f"Type: {consensus_type.replace('_', ' ').title()}")
+                    
+                    st.markdown("**Supporting Teams:**")
+                    st.write(", ".join([t.upper() for t in collab_consensus.get('supporting_teams', [])]))
+                    
+                    with st.expander("📝 Reasoning"):
+                        st.write(collab_consensus.get('reasoning'))
+                    
+                    st.markdown("---")
+                
+                # Show dialogue history from each team
+                st.markdown("### 💬 Dialogue History")
+                
+                for team in collab_teams:
+                    with st.expander(f"{team.upper()} Team Dialogue", expanded=not collab_consensus):
+                        messages = api_get(f"/incidents/{incident_id}/threads/{team}") or []
+                        
+                        # Filter to collaboration messages (from agents, marked with specific keywords)
+                        collab_messages = [
+                            msg for msg in messages
+                            if msg.get('sender_type') == 'agent' and
+                            any(keyword in msg.get('content', '').upper() 
+                                for keyword in ['MY POSITION', 'CRITIQUE', 'MY RESPONSE', 'CONSENSUS'])
+                        ]
+                        
+                        if not collab_messages:
+                            st.info(f"No collaboration messages from {team} team yet.")
+                        else:
+                            for msg in collab_messages:
+                                # Determine message type from content
+                                content = msg.get('content', '')
+                                
+                                if 'MY POSITION' in content:
+                                    st.markdown('<div style="background:#e3f2fd;padding:1rem;margin:0.5rem 0;border-radius:8px;border-left:4px solid #2196f3">', unsafe_allow_html=True)
+                                    st.markdown("**🧠 Initial Position**")
+                                elif 'CRITIQUE' in content:
+                                    st.markdown('<div style="background:#fff3e0;padding:1rem;margin:0.5rem 0;border-radius:8px;border-left:4px solid #ff9800">', unsafe_allow_html=True)
+                                    st.markdown("**💬 Critique**")
+                                elif 'MY RESPONSE' in content:
+                                    st.markdown('<div style="background:#f3e5f5;padding:1rem;margin:0.5rem 0;border-radius:8px;border-left:4px solid #9c27b0">', unsafe_allow_html=True)
+                                    st.markdown("**🔄 Response & Revision**")
+                                else:
+                                    st.markdown('<div style="background:#f5f5f5;padding:1rem;margin:0.5rem 0;border-radius:8px">', unsafe_allow_html=True)
+                                
+                                st.markdown(content)
+                                st.caption(f"Timestamp: {format_timestamp(msg.get('timestamp', ''))}")
+                                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Show process explanation
+                with st.expander("ℹ️ About Team Collaboration"):
+                    st.markdown("""
+                    **How it works:**
+                    
+                    1. **Strategic Commander identifies** 2-3 teams with overlapping or conflicting findings
+                    2. **Each team presents** their hypothesis with evidence
+                    3. **Teams critique** each other's positions constructively
+                    4. **Teams respond** and revise their hypotheses based on feedback
+                    5. **Commander facilitates** consensus among teams
+                    
+                    This collaborative dialogue helps reach more accurate root cause analysis by combining
+                    expertise from multiple domains.
+                    """)
     
     # Tab 2: Overview
     with tab2:

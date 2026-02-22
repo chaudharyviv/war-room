@@ -13,6 +13,7 @@ from models import (
     Hypothesis, TimelineEvent, Action, TeamState, TeamStatus,
     MessagePriority, ActionStatus, Message
 )
+from agent_collaboration import SelectiveCollaboration
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -51,6 +52,47 @@ class StrategicCommander:
             return None
 
         findings = await self.repo.get_findings(self.incident_id)
+        
+        # Organize findings by team
+        findings_by_team = {}
+        for f in findings:
+            if f.thread not in findings_by_team:
+                findings_by_team[f.thread] = []
+            findings_by_team[f.thread].append(f)
+        
+        # Check if selective collaboration is needed
+        collaboration = SelectiveCollaboration(self.incident_id, self.repo)
+        participating_teams = await collaboration.should_trigger_collaboration(incident, findings_by_team)
+        
+        if participating_teams:
+            # Store collaboration info in incident for frontend
+            if not hasattr(incident, 'collaboration_active'):
+                incident.collaboration_active = True
+                incident.collaboration_teams = participating_teams
+                await self.repo.update_incident(incident)
+            
+            # Conduct collaboration
+            consensus = await collaboration.conduct_collaboration(
+                incident, 
+                participating_teams, 
+                findings_by_team
+            )
+            
+            # If consensus reached, update hypothesis
+            if consensus and consensus.get("consensus_hypothesis"):
+                incident.hypothesis = Hypothesis(
+                    root_cause=consensus["consensus_hypothesis"],
+                    confidence=consensus["confidence"],
+                    supporting_evidence=consensus.get("key_evidence", []),
+                    version=incident.hypothesis.version + 1 if incident.hypothesis else 1,
+                    proposed_by="Team Consensus"
+                )
+                
+                incident.collaboration_consensus = consensus
+                await self.repo.update_incident(incident)
+                
+                # Return early - collaboration handled hypothesis
+                return consensus
         
         # Get current state
         analysis = await self._analyze_situation(incident, findings)
