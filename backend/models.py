@@ -184,7 +184,6 @@ class Incident(BaseModel):
             ActionStatus: lambda v: v.value if hasattr(v, 'value') else v,
         }
 
-
 class Message(BaseModel):
     """Communication message"""
     incident_id: str
