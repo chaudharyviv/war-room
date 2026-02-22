@@ -159,6 +159,21 @@ async def get_incident(incident_id: str):
         raise HTTPException(status_code=500, detail="Failed to retrieve incident")
 
 
+@app.delete("/incidents/{incident_id}")
+async def delete_incident(incident_id: str):
+    """Delete incident and all associated messages and findings"""
+    try:
+        deleted = await repo.delete_incident(incident_id)
+        if not deleted:
+            raise HTTPException(status_code=500, detail="Failed to delete incident")
+        return {"status": "deleted", "id": incident_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to delete incident {incident_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─────────────────────────────────────────────
 # MESSAGING & COMMUNICATION
 # ─────────────────────────────────────────────

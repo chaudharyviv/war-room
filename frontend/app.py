@@ -169,6 +169,27 @@ def api_post(endpoint: str, payload: Dict) -> Optional[Any]:
         return None
 
 
+def api_delete(endpoint: str) -> bool:
+    """DELETE request to backend. Returns True if 200, False otherwise."""
+    try:
+        url = f"{BACKEND_URL}{endpoint}"
+        r = requests.delete(url, timeout=10)
+        if r.status_code == 200:
+            return True
+        try:
+            err = r.json()
+            st.error(f"❌ API Error ({r.status_code}): {err.get('detail', r.text)}")
+        except Exception:
+            st.error(f"❌ API Error ({r.status_code}): {r.text}")
+        return False
+    except requests.exceptions.ConnectionError:
+        st.error(f"❌ Cannot connect to backend at {BACKEND_URL}.")
+        return False
+    except Exception as e:
+        st.error(f"❌ Request failed: {str(e)}")
+        return False
+
+
 def format_timestamp(ts: str) -> str:
     """Format ISO timestamp to readable format"""
     try:
@@ -342,7 +363,7 @@ elif page in ["Active Incidents", "Resolved Incidents"]:
     else:
         for inc in incidents:
             with st.expander(f"**{inc['title']}** - {inc['severity']}", expanded=False):
-                cols = st.columns([2, 1, 1, 1])
+                cols = st.columns([2, 1, 1, 1, 1])
                 
                 with cols[0]:
                     st.write(f"**System:** {inc.get('affected_system', 'N/A')}")
@@ -359,6 +380,14 @@ elif page in ["Active Incidents", "Resolved Incidents"]:
                     if st.button("View Details", key=f"view_{inc['id']}"):
                         st.session_state.selected_incident = inc['id']
                         st.rerun()
+                
+                with cols[4]:
+                    if st.button("🗑️ Delete", key=f"del_{inc['id']}", type="secondary"):
+                        if api_delete(f"/incidents/{inc['id']}"):
+                            st.success("Incident deleted.")
+                            if st.session_state.get("selected_incident") == inc["id"]:
+                                del st.session_state["selected_incident"]
+                            st.rerun()
 
 
 # ─────────────────────────────────────────────
@@ -368,10 +397,15 @@ elif page in ["Active Incidents", "Resolved Incidents"]:
 if 'selected_incident' in st.session_state:
     incident_id = st.session_state.selected_incident
     
-    # Clear button
+    # Sidebar: Back and Delete
     if st.sidebar.button("← Back to Dashboard"):
         del st.session_state.selected_incident
         st.rerun()
+    if st.sidebar.button("🗑️ Delete incident", type="secondary"):
+        if api_delete(f"/incidents/{incident_id}"):
+            del st.session_state.selected_incident
+            st.success("Incident deleted.")
+            st.rerun()
     
     # Load incident data with loading indicator
     with st.spinner("Loading incident details..."):
