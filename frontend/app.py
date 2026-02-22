@@ -1,210 +1,640 @@
 # ============================================================
-# app.py — Strategic AI War Room (Frontend)
+# app.py — Enterprise War Room Frontend
 # ============================================================
 
 import streamlit as st
 import requests
 import os
+from datetime import datetime
+from typing import Dict, Any, List
 
+# Configuration
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
-st.set_page_config(layout="wide")
-st.title("🚨 Strategic AI Incident Commander")
+st.set_page_config(
+    page_title="Strategic AI War Room",
+    page_icon="🚨",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for enterprise look
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #1f2937;
+        margin-bottom: 1rem;
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 10px;
+        color: white;
+        margin: 0.5rem 0;
+    }
+    .status-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        display: inline-block;
+    }
+    .status-critical { background: #ef4444; color: white; }
+    .status-high { background: #f59e0b; color: white; }
+    .status-normal { background: #10b981; color: white; }
+    .status-resolved { background: #6b7280; color: white; }
+    
+    .team-card {
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        background: white;
+    }
+    .team-standby { border-left: 4px solid #9ca3af; }
+    .team-investigating { border-left: 4px solid #3b82f6; }
+    .team-blocked { border-left: 4px solid #ef4444; }
+    .team-found { border-left: 4px solid #10b981; }
+    
+    .message-system {
+        background: #f3f4f6;
+        border-left: 4px solid #6b7280;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        border-radius: 4px;
+    }
+    .message-engineer {
+        background: #dbeafe;
+        border-left: 4px solid #3b82f6;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        border-radius: 4px;
+    }
+    .message-agent {
+        background: #fef3c7;
+        border-left: 4px solid #f59e0b;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        border-radius: 4px;
+    }
+    .message-commander {
+        background: #fce7f3;
+        border-left: 4px solid #ec4899;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+    
+    .action-pending { background: #fef3c7; }
+    .action-in_progress { background: #dbeafe; }
+    .action-completed { background: #d1fae5; }
+    .action-blocked { background: #fee2e2; }
+</style>
+""", unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────
 # API Helpers
 # ─────────────────────────────────────────────
 
-def api_get(endpoint):
+def api_get(endpoint: str) -> Any:
+    """GET request to backend"""
     try:
-        r = requests.get(f"{BACKEND_URL}{endpoint}")
-        if r.status_code == 200:
-            return r.json()
-        return None
-    except:
+        r = requests.get(f"{BACKEND_URL}{endpoint}", timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        st.error(f"API Error: {str(e)}")
         return None
 
 
-def api_post(endpoint, payload):
+def api_post(endpoint: str, payload: Dict) -> Any:
+    """POST request to backend"""
     try:
-        r = requests.post(f"{BACKEND_URL}{endpoint}", json=payload)
-        if r.status_code == 200:
-            return r.json()
+        r = requests.post(f"{BACKEND_URL}{endpoint}", json=payload, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        st.error(f"API Error: {str(e)}")
         return None
+
+
+def format_timestamp(ts: str) -> str:
+    """Format ISO timestamp to readable format"""
+    try:
+        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        return dt.strftime("%H:%M:%S")
     except:
-        return None
+        return ts
+
+
+def get_status_badge(status: str) -> str:
+    """Get HTML badge for status"""
+    status_classes = {
+        "declared": "status-critical",
+        "investigating": "status-high",
+        "identified": "status-high",
+        "mitigating": "status-normal",
+        "resolved": "status-resolved",
+        "P0": "status-critical",
+        "P1": "status-critical",
+        "P2": "status-high",
+        "P3": "status-normal",
+        "P4": "status-normal",
+    }
+    css_class = status_classes.get(status, "status-normal")
+    return f'<span class="status-badge {css_class}">{status}</span>'
 
 
 # ─────────────────────────────────────────────
-# Incident Creation Section
+# Sidebar Navigation
 # ─────────────────────────────────────────────
 
-st.markdown("## 🆕 Initiate War Room")
-
-with st.form("create_incident_form"):
-    title = st.text_input("Incident Title")
-    description = st.text_area("Description")
-    severity = st.selectbox("Severity", ["P1", "P2", "P3"])
-    affected_system = st.text_input("Affected System")
-
-    submitted = st.form_submit_button("🚀 Create Incident")
-
-    if submitted:
-        if not title or not description or not affected_system:
-            st.error("All fields are required.")
-        else:
-            payload = {
-                "title": title,
-                "description": description,
-                "severity": severity,
-                "affected_system": affected_system
-            }
-
-            result = api_post("/incidents", payload)
-
-            if result:
-                st.success("War Room initiated successfully.")
-                st.rerun()
-            else:
-                st.error("Failed to create incident.")
-
-st.markdown("---")
-
-# ─────────────────────────────────────────────
-# Load Incidents
-# ─────────────────────────────────────────────
-
-incidents = api_get("/incidents") or []
-
-if not incidents:
-    st.info("No active incidents yet.")
-    st.stop()
-
-incident_ids = [i["id"] for i in incidents]
-selected_id = st.selectbox("Select Incident", incident_ids)
-
-incident = api_get(f"/incidents/{selected_id}")
-findings = api_get(f"/incidents/{selected_id}/findings") or []
-timeline = api_get(f"/incidents/{selected_id}/timeline") or []
-
-if not incident:
-    st.error("Incident not found.")
-    st.stop()
-
-# ─────────────────────────────────────────────
-# Incident Overview
-# ─────────────────────────────────────────────
-
-st.markdown("## 📊 Incident Overview")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric("Severity", incident.get("severity"))
-
-with col2:
-    st.metric("Status", incident.get("status"))
-
-with col3:
-    st.metric("Findings", len(findings))
-
-# ─────────────────────────────────────────────
-# Hypothesis
-# ─────────────────────────────────────────────
-
-st.markdown("## 🧠 Current Hypothesis")
-
-hypothesis = incident.get("hypothesis")
-
-if hypothesis:
-    st.success(f"Root Cause: {hypothesis.get('root_cause')}")
-    st.progress(hypothesis.get("confidence", 0))
-else:
-    st.info("No hypothesis formed yet.")
-
-# ─────────────────────────────────────────────
-# Executive Summary
-# ─────────────────────────────────────────────
-
-if st.button("📣 Generate Executive Summary"):
-    summary = api_get(f"/incidents/{selected_id}/executive-summary")
-    if summary:
-        st.success(summary.get("summary"))
-
-# ─────────────────────────────────────────────
-# Threads
-# ─────────────────────────────────────────────
-
-st.markdown("## 🧵 Investigation Threads")
-
-threads = incident.get("threads", [])
-
-for thread in threads:
-
-    if thread == "summary":
-        continue
-
-    with st.expander(f"{thread.upper()} TEAM"):
-
-        messages = api_get(
-            f"/incidents/{selected_id}/threads/{thread}"
-        ) or []
-
-        for msg in messages[-10:]:
-            if msg["sender_type"] == "system":
-                st.markdown(f"🟢 **SYSTEM:** {msg['content']}")
-            elif msg["sender_type"] == "engineer":
-                st.markdown(f"👤 **{msg['sender']}**: {msg['content']}")
-            else:
-                st.markdown(f"🤖 _Agent_: {msg['content']}")
-
-        st.markdown("---")
-
-        engineer_name = st.text_input(
-            f"Your Name ({thread})",
-            key=f"name_{thread}"
-        )
-
-        message_input = st.text_area(
-            f"Update for {thread}",
-            key=f"msg_{thread}"
-        )
-
-        if st.button(f"Send to {thread}", key=f"btn_{thread}"):
-
-            if engineer_name and message_input:
-                payload = {
-                    "thread": thread,
-                    "engineer_name": engineer_name,
-                    "content": message_input
-                }
-
-                api_post(
-                    f"/incidents/{selected_id}/message",
-                    payload
-                )
-
-                st.rerun()
-
-# ─────────────────────────────────────────────
-# Timeline
-# ─────────────────────────────────────────────
-
-st.markdown("## 📜 Timeline")
-
-for event in timeline[-20:]:
-    st.markdown(
-        f"**{event['event_type'].upper()}** "
-        f"({event['timestamp']}): {event['description']}"
+with st.sidebar:
+    st.markdown("# 🚨 War Room")
+    
+    page = st.radio(
+        "Navigate",
+        ["Dashboard", "Create Incident", "Active Incidents", "Resolved Incidents"],
+        label_visibility="collapsed"
     )
+    
+    st.markdown("---")
+    st.markdown("### Quick Stats")
+    
+    all_incidents = api_get("/incidents") or []
+    active_count = len([i for i in all_incidents if i.get("status") not in ["resolved", "postmortem"]])
+    
+    st.metric("Active Incidents", active_count)
+    st.metric("Total Incidents", len(all_incidents))
+
 
 # ─────────────────────────────────────────────
-# Resolve Incident
+# Page: Dashboard
 # ─────────────────────────────────────────────
 
-if incident.get("status") != "resolved":
-    if st.button("✅ Resolve Incident"):
-        api_post(f"/incidents/{selected_id}/resolve", {})
+if page == "Dashboard":
+    st.markdown('<div class="main-header">🎯 Strategic Command Dashboard</div>', unsafe_allow_html=True)
+    
+    incidents = api_get("/incidents?status=investigating") or []
+    
+    if not incidents:
+        st.info("✅ No active incidents. System operational.")
+    else:
+        # Show active incidents
+        for inc in incidents[:5]:
+            with st.container():
+                cols = st.columns([3, 1, 1, 1])
+                
+                with cols[0]:
+                    st.markdown(f"**{inc['title']}**")
+                    st.caption(inc.get('affected_system', 'N/A'))
+                
+                with cols[1]:
+                    st.markdown(get_status_badge(inc['severity']), unsafe_allow_html=True)
+                
+                with cols[2]:
+                    st.markdown(get_status_badge(inc['status']), unsafe_allow_html=True)
+                
+                with cols[3]:
+                    if st.button("Open", key=f"dash_{inc['id']}"):
+                        st.session_state.selected_incident = inc['id']
+                        st.rerun()
+                
+                st.markdown("---")
+
+
+# ─────────────────────────────────────────────
+# Page: Create Incident
+# ─────────────────────────────────────────────
+
+elif page == "Create Incident":
+    st.markdown('<div class="main-header">🆕 Declare New Incident</div>', unsafe_allow_html=True)
+    
+    with st.form("create_incident_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            title = st.text_input("Incident Title *", placeholder="e.g., Database Connection Pool Exhaustion")
+            affected_system = st.text_input("Affected System *", placeholder="e.g., Production Database Cluster")
+            severity = st.selectbox("Severity *", ["P0", "P1", "P2", "P3", "P4"], index=1)
+        
+        with col2:
+            commander = st.text_input("Incident Commander", placeholder="Optional")
+            
+            st.markdown("##### Impact Assessment")
+            affected_users = st.number_input("Affected Users (approx)", min_value=0, value=0, step=100)
+            affected_services = st.text_input("Affected Services", placeholder="Comma-separated")
+        
+        description = st.text_area(
+            "Description *",
+            placeholder="Detailed description of the incident, symptoms, and initial observations...",
+            height=150
+        )
+        
+        submitted = st.form_submit_button("🚀 Declare Incident", use_container_width=True)
+        
+        if submitted:
+            if not title or not description or not affected_system:
+                st.error("⚠️ Please fill in all required fields (marked with *)")
+            else:
+                payload = {
+                    "title": title,
+                    "description": description,
+                    "severity": severity,
+                    "affected_system": affected_system,
+                    "incident_commander": commander if commander else None,
+                    "impact": {
+                        "affected_users": affected_users if affected_users > 0 else None,
+                        "affected_services": [s.strip() for s in affected_services.split(",")] if affected_services else []
+                    }
+                }
+                
+                result = api_post("/incidents", payload)
+                
+                if result:
+                    st.success("✅ Incident declared successfully! War Room activated.")
+                    st.balloons()
+                    st.session_state.selected_incident = result['id']
+                    st.rerun()
+
+
+# ─────────────────────────────────────────────
+# Page: Active/Resolved Incidents
+# ─────────────────────────────────────────────
+
+elif page in ["Active Incidents", "Resolved Incidents"]:
+    status_filter = None if page == "Active Incidents" else "resolved"
+    
+    st.markdown(f'<div class="main-header">📋 {page}</div>', unsafe_allow_html=True)
+    
+    incidents = api_get(f"/incidents{'?status=' + status_filter if status_filter else ''}") or []
+    
+    if not incidents:
+        st.info(f"No {page.lower()} found.")
+    else:
+        for inc in incidents:
+            with st.expander(f"**{inc['title']}** - {inc['severity']}", expanded=False):
+                cols = st.columns([2, 1, 1, 1])
+                
+                with cols[0]:
+                    st.write(f"**System:** {inc.get('affected_system', 'N/A')}")
+                    if inc.get('incident_commander'):
+                        st.write(f"**Commander:** {inc['incident_commander']}")
+                
+                with cols[1]:
+                    st.markdown(get_status_badge(inc['severity']), unsafe_allow_html=True)
+                
+                with cols[2]:
+                    st.markdown(get_status_badge(inc['status']), unsafe_allow_html=True)
+                
+                with cols[3]:
+                    if st.button("View Details", key=f"view_{inc['id']}"):
+                        st.session_state.selected_incident = inc['id']
+                        st.rerun()
+
+
+# ─────────────────────────────────────────────
+# Incident Detail View (shown when incident selected)
+# ─────────────────────────────────────────────
+
+if 'selected_incident' in st.session_state:
+    incident_id = st.session_state.selected_incident
+    
+    # Clear button
+    if st.sidebar.button("← Back to Dashboard"):
+        del st.session_state.selected_incident
         st.rerun()
-else:
-    st.success("Incident resolved.")
+    
+    # Load incident data
+    incident = api_get(f"/incidents/{incident_id}")
+    stats = api_get(f"/incidents/{incident_id}/stats")
+    
+    if not incident:
+        st.error("Incident not found")
+        del st.session_state.selected_incident
+        st.rerun()
+    
+    # Header
+    st.markdown(f'<div class="main-header">{incident["title"]}</div>', unsafe_allow_html=True)
+    
+    # Top metrics
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("Severity", incident['severity'])
+    with col2:
+        st.metric("Status", incident['status'].title())
+    with col3:
+        st.metric("Teams Active", stats.get('teams_active', 0) if stats else 0)
+    with col4:
+        st.metric("Findings", stats.get('total_findings', 0) if stats else 0)
+    with col5:
+        confidence = incident.get('hypothesis', {}).get('confidence', 0) if incident.get('hypothesis') else 0
+        st.metric("Confidence", f"{confidence:.0%}")
+    
+    st.markdown("---")
+    
+    # Main content tabs
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🧵 War Room", "📊 Overview", "🎯 Actions", "📈 Timeline", "👥 Teams"
+    ])
+    
+    # Tab 1: War Room (Thread Communications)
+    with tab1:
+        threads = incident.get('threads', [])
+        
+        # Thread selector
+        selected_thread = st.selectbox(
+            "Select Thread",
+            threads,
+            format_func=lambda x: f"{'📋 ' if x == 'summary' else '🔧 '}{x.upper()} TEAM"
+        )
+        
+        st.markdown(f"### {selected_thread.upper()} Thread")
+        
+        # Load messages
+        messages = api_get(f"/incidents/{incident_id}/threads/{selected_thread}") or []
+        
+        # Message display area
+        message_container = st.container()
+        
+        with message_container:
+            if not messages:
+                st.info(f"No messages in {selected_thread} thread yet.")
+            else:
+                for msg in messages:
+                    sender_type = msg.get('sender_type', 'engineer')
+                    css_class = f"message-{sender_type}"
+                    
+                    # Emoji based on sender type
+                    emoji = {
+                        'system': '🟢',
+                        'engineer': '👤',
+                        'agent': '🤖',
+                        'commander': '⭐'
+                    }.get(sender_type, '💬')
+                    
+                    is_critical = msg.get('is_critical', False)
+                    
+                    st.markdown(
+                        f'<div class="{css_class}">'
+                        f'<strong>{emoji} {msg["sender"]}</strong> '
+                        f'<span style="float:right;color:#6b7280;font-size:0.875rem;">{format_timestamp(msg.get("timestamp", ""))}</span>'
+                        f'{"<br><span style=\"color:red;font-weight:bold;\">🚨 CRITICAL</span>" if is_critical else ""}'
+                        f'<br>{msg["content"]}'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+        
+        st.markdown("---")
+        
+        # Input form (only for non-summary threads)
+        if selected_thread != "summary":
+            st.markdown(f"### 📝 Post Update to {selected_thread.upper()}")
+            
+            with st.form(f"post_{selected_thread}", clear_on_submit=True):
+                col_name, col_priority = st.columns([3, 1])
+                
+                with col_name:
+                    engineer_name = st.text_input(
+                        "Your Name",
+                        key=f"name_{selected_thread}",
+                        placeholder="Engineer Name"
+                    )
+                
+                with col_priority:
+                    priority = st.selectbox(
+                        "Priority",
+                        ["normal", "high", "critical"],
+                        key=f"priority_{selected_thread}"
+                    )
+                
+                message_input = st.text_area(
+                    "Update",
+                    key=f"msg_{selected_thread}",
+                    placeholder="Share your findings, blockers, or questions...",
+                    height=100
+                )
+                
+                submit_msg = st.form_submit_button("📤 Send Update", use_container_width=True)
+                
+                if submit_msg:
+                    if engineer_name and message_input:
+                        payload = {
+                            "thread": selected_thread,
+                            "engineer_name": engineer_name,
+                            "content": message_input,
+                            "priority": priority
+                        }
+                        
+                        result = api_post(f"/incidents/{incident_id}/message", payload)
+                        
+                        if result:
+                            st.success("✅ Update posted!")
+                            st.rerun()
+                    else:
+                        st.warning("Please enter your name and message.")
+    
+    # Tab 2: Overview
+    with tab2:
+        col_left, col_right = st.columns([2, 1])
+        
+        with col_left:
+            st.markdown("### 📝 Incident Details")
+            st.write(f"**Description:** {incident['description']}")
+            st.write(f"**Affected System:** {incident['affected_system']}")
+            if incident.get('incident_commander'):
+                st.write(f"**Commander:** {incident['incident_commander']}")
+            
+            st.markdown("### 💡 Current Hypothesis")
+            if incident.get('hypothesis'):
+                hyp = incident['hypothesis']
+                st.success(f"**Root Cause:** {hyp['root_cause']}")
+                st.progress(hyp.get('confidence', 0))
+                st.caption(f"Confidence: {hyp.get('confidence', 0):.0%} | Version: {hyp.get('version', 1)}")
+                
+                if hyp.get('supporting_evidence'):
+                    st.markdown("**Evidence:**")
+                    for evidence in hyp['supporting_evidence']:
+                        st.write(f"- {evidence}")
+            else:
+                st.info("No hypothesis formed yet. Investigation in progress.")
+        
+        with col_right:
+            st.markdown("### 📊 Impact")
+            impact = incident.get('impact', {})
+            if impact:
+                if impact.get('affected_users'):
+                    st.metric("Affected Users", f"{impact['affected_users']:,}")
+                if impact.get('affected_services'):
+                    st.write("**Services:**")
+                    for svc in impact['affected_services']:
+                        st.write(f"- {svc}")
+            
+            st.markdown("### 🎯 Quick Actions")
+            
+            if incident['status'] != "resolved":
+                if st.button("🔄 Trigger Commander Analysis", use_container_width=True):
+                    with st.spinner("Analyzing..."):
+                        api_post(f"/incidents/{incident_id}/analyze", {})
+                        st.success("Analysis triggered!")
+                        st.rerun()
+                
+                if st.button("📣 Generate Executive Summary", use_container_width=True):
+                    summary_data = api_get(f"/incidents/{incident_id}/executive-summary")
+                    if summary_data:
+                        st.success(summary_data['summary'])
+                
+                if st.button("✅ Resolve Incident", use_container_width=True):
+                    api_post(f"/incidents/{incident_id}/resolve", {})
+                    st.success("Incident marked as resolved!")
+                    st.rerun()
+    
+    # Tab 3: Actions
+    with tab3:
+        st.markdown("### 🎯 Assigned Actions")
+        
+        actions = api_get(f"/incidents/{incident_id}/actions") or []
+        
+        if not actions:
+            st.info("No actions assigned yet.")
+        else:
+            # Filter controls
+            col_filter, col_sort = st.columns(2)
+            
+            with col_filter:
+                filter_status = st.multiselect(
+                    "Filter by Status",
+                    ["pending", "in_progress", "completed", "blocked"],
+                    default=["pending", "in_progress", "blocked"]
+                )
+            
+            with col_sort:
+                filter_priority = st.multiselect(
+                    "Filter by Priority",
+                    ["critical", "high", "normal", "low"],
+                    default=["critical", "high", "normal"]
+                )
+            
+            # Filter actions
+            filtered_actions = [
+                a for a in actions
+                if a['status'] in filter_status and a['priority'] in filter_priority
+            ]
+            
+            st.caption(f"Showing {len(filtered_actions)} of {len(actions)} actions")
+            
+            for action in filtered_actions:
+                status_class = f"action-{action['status']}"
+                
+                with st.container():
+                    st.markdown(f'<div class="{status_class}" style="padding:1rem;margin:0.5rem 0;border-radius:8px;">', unsafe_allow_html=True)
+                    
+                    cols = st.columns([3, 1, 1])
+                    
+                    with cols[0]:
+                        priority_emoji = {
+                            'critical': '🔴',
+                            'high': '🟠',
+                            'normal': '🟢',
+                            'low': '⚪'
+                        }.get(action['priority'], '🟢')
+                        
+                        st.markdown(f"{priority_emoji} **{action['description']}**")
+                        st.caption(f"Assigned to: {action['assigned_to'].upper()}")
+                    
+                    with cols[1]:
+                        st.markdown(get_status_badge(action['status']), unsafe_allow_html=True)
+                    
+                    with cols[2]:
+                        if action['status'] != "completed":
+                            new_status = st.selectbox(
+                                "Update",
+                                ["pending", "in_progress", "completed", "blocked"],
+                                key=f"action_status_{action['id']}",
+                                index=["pending", "in_progress", "completed", "blocked"].index(action['status']),
+                                label_visibility="collapsed"
+                            )
+                            
+                            if new_status != action['status']:
+                                payload = {"action_id": action['id'], "status": new_status}
+                                api_post(f"/incidents/{incident_id}/actions/{action['id']}", payload)
+                                st.rerun()
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Tab 4: Timeline
+    with tab4:
+        st.markdown("### 📈 Incident Timeline")
+        
+        timeline = incident.get('timeline', [])
+        
+        if not timeline:
+            st.info("No timeline events yet.")
+        else:
+            # Reverse to show newest first
+            for event in reversed(timeline[-50:]):
+                event_type = event.get('event_type', 'info')
+                
+                emoji = {
+                    'detection': '🔍',
+                    'escalation': '⬆️',
+                    'finding': '💡',
+                    'action': '🎯',
+                    'action_assigned': '📝',
+                    'action_update': '📋',
+                    'hypothesis_formed': '💭',
+                    'hypothesis_updated': '🔄',
+                    'team_coordination': '🤝',
+                    'strategic_analysis': '🧠',
+                    'resolution': '✅'
+                }.get(event_type, '📌')
+                
+                timestamp = format_timestamp(event.get('timestamp', ''))
+                team = event.get('team', '')
+                team_badge = f"[{team.upper()}]" if team else ""
+                
+                st.markdown(
+                    f"**{timestamp}** {emoji} {team_badge} {event['description']}"
+                )
+                st.markdown("---")
+    
+    # Tab 5: Teams
+    with tab5:
+        st.markdown("### 👥 Team Coordination")
+        
+        team_states = incident.get('team_states', {})
+        
+        if not team_states:
+            st.info("No team data available.")
+        else:
+            # Show team cards
+            cols = st.columns(3)
+            
+            for idx, (team_name, state) in enumerate(team_states.items()):
+                with cols[idx % 3]:
+                    status = state.get('status', 'standby')
+                    status_class = f"team-{status}"
+                    
+                    st.markdown(f'<div class="team-card {status_class}">', unsafe_allow_html=True)
+                    
+                    st.markdown(f"### {team_name.upper()}")
+                    st.markdown(get_status_badge(status), unsafe_allow_html=True)
+                    
+                    st.metric("Findings", state.get('findings_count', 0))
+                    st.metric("Active Tasks", len(state.get('active_tasks', [])))
+                    
+                    if state.get('assigned_engineers'):
+                        st.caption("Engineers: " + ", ".join(state['assigned_engineers']))
+                    
+                    if state.get('blocked_reason'):
+                        st.error(f"⚠️ Blocked: {state['blocked_reason']}")
+                    
+                    if state.get('needs_help_from'):
+                        st.warning(f"Needs help from: {', '.join(state['needs_help_from'])}")
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
