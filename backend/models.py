@@ -70,7 +70,7 @@ class TeamState(BaseModel):
         use_enum_values = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
-            TeamStatus: lambda v: v.value,
+            TeamStatus: lambda v: v.value if hasattr(v, 'value') else v,
         }
 
 
@@ -90,8 +90,8 @@ class Action(BaseModel):
         use_enum_values = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
-            MessagePriority: lambda v: v.value,
-            ActionStatus: lambda v: v.value,
+            MessagePriority: lambda v: v.value if hasattr(v, 'value') else v,
+            ActionStatus: lambda v: v.value if hasattr(v, 'value') else v,
         }
 
 
@@ -177,11 +177,11 @@ class Incident(BaseModel):
         use_enum_values = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
-            IncidentSeverity: lambda v: v.value,
-            IncidentStatus: lambda v: v.value,
-            TeamStatus: lambda v: v.value,
-            MessagePriority: lambda v: v.value,
-            ActionStatus: lambda v: v.value,
+            IncidentSeverity: lambda v: v.value if hasattr(v, 'value') else v,
+            IncidentStatus: lambda v: v.value if hasattr(v, 'value') else v,
+            TeamStatus: lambda v: v.value if hasattr(v, 'value') else v,
+            MessagePriority: lambda v: v.value if hasattr(v, 'value') else v,
+            ActionStatus: lambda v: v.value if hasattr(v, 'value') else v,
         }
 
 
@@ -202,7 +202,7 @@ class Message(BaseModel):
         use_enum_values = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
-            MessagePriority: lambda v: v.value,
+            MessagePriority: lambda v: v.value if hasattr(v, 'value') else v,
         }
 
 
@@ -240,7 +240,7 @@ class CreateIncidentRequest(BaseModel):
         use_enum_values = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
-            IncidentSeverity: lambda v: v.value,
+            IncidentSeverity: lambda v: v.value if hasattr(v, 'value') else v,
         }
 
 
@@ -252,6 +252,9 @@ class AddMessageRequest(BaseModel):
 
     class Config:
         use_enum_values = True
+        json_encoders = {
+            MessagePriority: lambda v: v.value if hasattr(v, 'value') else v,
+        }
 
 
 class UpdateActionRequest(BaseModel):
@@ -261,6 +264,9 @@ class UpdateActionRequest(BaseModel):
 
     class Config:
         use_enum_values = True
+        json_encoders = {
+            ActionStatus: lambda v: v.value if hasattr(v, 'value') else v,
+        }
 
 
 class TeamStatusUpdate(BaseModel):
@@ -271,3 +277,6 @@ class TeamStatusUpdate(BaseModel):
 
     class Config:
         use_enum_values = True
+        json_encoders = {
+            TeamStatus: lambda v: v.value if hasattr(v, 'value') else v,
+        }
