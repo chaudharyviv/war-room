@@ -317,7 +317,7 @@ async def get_actions(
         actions = incident.actions
         
         if status:
-            actions = [a for a in actions if (a.status.value if hasattr(a.status, 'value') else a.status) == status]
+            actions = [a for a in actions if a.status.value == status]
         
         return actions
         
@@ -521,14 +521,11 @@ async def get_incident_stats(incident_id: str):
         teams_blocked = sum(1 for ts in incident.team_states.values() 
                            if ts.status == "blocked")
         
-        def _status_val(s):
-            return s.value if hasattr(s, 'value') else s
-
         actions_pending = sum(1 for a in incident.actions 
-                             if _status_val(a.status) == ActionStatus.PENDING.value)
+                             if a.status == ActionStatus.PENDING)
         
         actions_completed = sum(1 for a in incident.actions 
-                               if _status_val(a.status) == ActionStatus.COMPLETED.value)
+                               if a.status == ActionStatus.COMPLETED)
         
         return {
             "total_findings": len(findings),
@@ -547,6 +544,49 @@ async def get_incident_stats(incident_id: str):
         logger.error(f"❌ Failed to get incident stats: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve incident statistics")
 
+
+
+# ─────────────────────────────────────────────
+# CLEANUP UTILITIES
+# ─────────────────────────────────────────────
+
+@app.post("/incidents/{incident_id}/cleanup-actions")
+async def cleanup_duplicate_actions(incident_id: str):
+    """Remove duplicate pending actions, keep only unique ones per team"""
+    try:
+        incident = await repo.get_incident(incident_id)
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        
+        seen = set()
+        deduped = []
+        removed = 0
+        
+        for action in incident.actions:
+            a_status = action.status.value if hasattr(action.status, 'value') else action.status
+            # Always keep completed/in-progress actions
+            if a_status in ("completed", "in_progress"):
+                deduped.append(action)
+                continue
+            # Deduplicate pending/blocked by team + description
+            key = action.assigned_to.lower() + ":" + action.description.lower()[:60]
+            if key not in seen:
+                seen.add(key)
+                deduped.append(action)
+            else:
+                removed += 1
+        
+        incident.actions = deduped
+        await repo.update_incident(incident)
+        
+        logger.info(f"✅ Cleaned up {removed} duplicate actions for incident {incident_id}")
+        return {"status": "cleaned", "removed": removed, "remaining": len(deduped)}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to cleanup actions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

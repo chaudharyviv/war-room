@@ -4,7 +4,6 @@
 
 import os
 import json
-import re
 import uuid
 import logging
 from typing import List, Dict, Optional
@@ -333,12 +332,40 @@ RULES:
         
         new_actions = analysis.get("new_actions", [])
         
+        # Build set of existing action descriptions (lowercased) to avoid duplicates
+        existing_actions = set()
+        for a in incident.actions:
+            a_status = a.status.value if hasattr(a.status, 'value') else a.status
+            # Only block duplicates of non-completed actions
+            if a_status != ActionStatus.COMPLETED.value:
+                existing_actions.add(a.assigned_to.lower() + ":" + a.description.lower()[:60])
+        
+        # Cap total active actions at 10 to prevent overflow
+        active_action_count = sum(
+            1 for a in incident.actions
+            if (a.status.value if hasattr(a.status, 'value') else a.status) != ActionStatus.COMPLETED.value
+        )
+        
         for action_data in new_actions:
             team = action_data.get("team")
             description = action_data.get("description")
             
             if not team or not description:
                 continue
+            
+            # Skip if duplicate (same team + similar description)
+            dedup_key = team.lower() + ":" + description.lower()[:60]
+            if dedup_key in existing_actions:
+                logger.info(f"Skipping duplicate action for {team}: {description[:50]}")
+                continue
+            
+            # Cap at 10 active actions total
+            if active_action_count >= 10:
+                logger.info(f"Action cap reached (10), skipping: {description[:50]}")
+                break
+            
+            existing_actions.add(dedup_key)
+            active_action_count += 1
             
             # Create action
             action = Action(
