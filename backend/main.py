@@ -317,7 +317,7 @@ async def get_actions(
         actions = incident.actions
         
         if status:
-            actions = [a for a in actions if a.status.value == status]
+            actions = [a for a in actions if (a.status.value if hasattr(a.status, 'value') else a.status) == status]
         
         return actions
         
