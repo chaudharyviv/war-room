@@ -132,14 +132,14 @@ def api_get(endpoint: str) -> Optional[Any]:
         return None
 
 
-def api_post(endpoint: str, payload: Dict) -> Optional[Any]:
+def api_post(endpoint: str, payload: Dict, timeout: int = 60) -> Optional[Any]:
     """POST request to backend with improved error handling"""
     try:
         url = f"{BACKEND_URL}{endpoint}"
         st.session_state['last_api_call'] = url
         st.session_state['last_payload'] = payload
         
-        r = requests.post(url, json=payload, timeout=10)
+        r = requests.post(url, json=payload, timeout=timeout)
         
         if r.status_code == 200:
             return r.json()
@@ -358,7 +358,13 @@ elif page in ["Active Incidents", "Resolved Incidents"]:
     
     st.markdown(f'<div class="main-header">📋 {page}</div>', unsafe_allow_html=True)
     
-    incidents = api_get(f"/incidents{'?status=' + status_filter if status_filter else ''}") or []
+    incidents_raw = api_get(f"/incidents{'?status=' + status_filter if status_filter else ''}") or []
+    
+    # For Active Incidents page, filter out resolved/postmortem
+    if page == "Active Incidents":
+        incidents = [i for i in incidents_raw if i.get("status") not in ("resolved", "postmortem")]
+    else:
+        incidents = incidents_raw
     
     if not incidents:
         st.info(f"No {page.lower()} found.")

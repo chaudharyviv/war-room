@@ -86,12 +86,14 @@ class OrchestratorAgent:
                 incident.team_states[thread].assigned_engineers.append(engineer_name)
             
             # Update status based on signal type
+            current_status = incident.team_states[thread].status
+            current_status_val = current_status.value if hasattr(current_status, 'value') else current_status
             if classification["signal_type"] == "blocker":
                 incident.team_states[thread].status = TeamStatus.BLOCKED
                 incident.team_states[thread].blocked_reason = content[:100]
             elif classification["signal_type"] == "root_cause_candidate":
                 incident.team_states[thread].status = TeamStatus.FOUND_ISSUE
-            elif incident.team_states[thread].status == TeamStatus.STANDBY:
+            elif current_status_val == TeamStatus.STANDBY.value:
                 incident.team_states[thread].status = TeamStatus.INVESTIGATING
         
         # Add to timeline
@@ -142,7 +144,8 @@ class OrchestratorAgent:
     async def _classify_signal(self, content, thread, incident):
         """Classify the type of signal from engineer input"""
         
-        prompt = f"""You are analyzing an engineer's update during a P{incident.severity.value[-1]} incident.
+        severity_str = incident.severity.value if hasattr(incident.severity, 'value') else incident.severity
+        prompt = f"""You are analyzing an engineer's update during a P{severity_str[-1]} incident.
 
 INCIDENT: {incident.title}
 AFFECTED SYSTEM: {incident.affected_system}
@@ -275,7 +278,8 @@ Trigger commander if:
         
         # Complete all pending actions
         for action in incident.actions:
-            if action.status != ActionStatus.COMPLETED:
+            action_status = action.status.value if hasattr(action.status, 'value') else action.status
+            if action_status != ActionStatus.COMPLETED.value:
                 action.status = ActionStatus.COMPLETED
                 action.completed_at = incident.resolved_at
         
@@ -336,7 +340,7 @@ Trigger commander if:
         incident.timeline.append(
             TimelineEvent(
                 event_type="action_update",
-                description=f"{action.assigned_to.upper()}: Action {status.value} - {action.description[:50]}",
+                description=f"{action.assigned_to.upper()}: Action {status.value if hasattr(status, 'value') else status} - {action.description[:50]}",
                 team=action.assigned_to,
                 metadata={"action_id": action_id, "notes": notes}
             )
@@ -350,7 +354,7 @@ Trigger commander if:
             thread=action.assigned_to,
             sender="Strategic Commander",
             sender_type="commander",
-            content=f"📋 Action updated: {old_status.value} → {status.value}\n{action.description}\n{notes or ''}",
+            content=f"📋 Action updated: {old_status.value if hasattr(old_status, 'value') else old_status} → {status.value if hasattr(status, 'value') else status}\n{action.description}\n{notes or ''}",
             priority=MessagePriority.NORMAL
         )
         

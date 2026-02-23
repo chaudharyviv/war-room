@@ -66,7 +66,7 @@ class StrategicCommander:
         
         if participating_teams:
             # Store collaboration info in incident for frontend
-            if not hasattr(incident, 'collaboration_active'):
+            if not incident.collaboration_active or set(incident.collaboration_teams) != set(participating_teams):
                 incident.collaboration_active = True
                 incident.collaboration_teams = participating_teams
                 await self.repo.update_incident(incident)
@@ -150,26 +150,28 @@ class StrategicCommander:
             if incident.hypothesis else "No hypothesis yet"
         )
         
-        active_actions = [a for a in incident.actions if a.status != ActionStatus.COMPLETED]
+        active_actions = [a for a in incident.actions if (a.status.value if hasattr(a.status, 'value') else a.status) != ActionStatus.COMPLETED]
         actions_summary = "\n".join([
-            f"  - [{a.assigned_to}] {a.description} ({a.status.value})"
+            f"  - [{a.assigned_to}] {a.description} ({a.status.value if hasattr(a.status, 'value') else a.status})"
             for a in active_actions
         ]) if active_actions else "No active actions"
         
         # Team states
         team_status = ""
         for team_name, state in incident.team_states.items():
-            team_status += f"  {team_name}: {state.status.value}"
+            status_val = state.status.value if hasattr(state.status, 'value') else state.status
+            team_status += f"  {team_name}: {status_val}"
             if state.blocked_reason:
                 team_status += f" (BLOCKED: {state.blocked_reason})"
             team_status += "\n"
 
-        prompt = f"""You are an elite Incident Commander managing a P{incident.severity.value[-1]} incident.
+        severity_str = incident.severity.value if hasattr(incident.severity, 'value') else incident.severity
+        prompt = f"""You are an elite Incident Commander managing a P{severity_str[-1]} incident.
 
 INCIDENT: {incident.title}
 SYSTEM: {incident.affected_system}
 DESCRIPTION: {incident.description}
-STATUS: {incident.status.value}
+STATUS: {incident.status.value if hasattr(incident.status, 'value') else incident.status}
 
 CURRENT HYPOTHESIS:
 {current_hypothesis}
@@ -242,7 +244,8 @@ RULES:
         # Check for blockers
         blockers = []
         for team_name, state in incident.team_states.items():
-            if state.status == TeamStatus.BLOCKED and state.blocked_reason:
+            state_status = state.status.value if hasattr(state.status, 'value') else state.status
+            if state_status == TeamStatus.BLOCKED.value and state.blocked_reason:
                 blockers.append(f"{team_name}: {state.blocked_reason}")
         
         # Check for root cause candidates
@@ -334,28 +337,32 @@ RULES:
             # Update team state
             if team in incident.team_states:
                 incident.team_states[team].active_tasks.append(action.id)
-                if incident.team_states[team].status == TeamStatus.STANDBY:
+                current_team_status = incident.team_states[team].status
+                current_team_status_val = current_team_status.value if hasattr(current_team_status, 'value') else current_team_status
+                if current_team_status_val == TeamStatus.STANDBY.value:
                     incident.team_states[team].status = TeamStatus.INVESTIGATING
             
             # Add to timeline
+            action_priority_val = action.priority.value if hasattr(action.priority, 'value') else action.priority
             incident.timeline.append(
                 TimelineEvent(
                     event_type="action_assigned",
                     description=f"Action assigned to {team.upper()}: {description}",
                     team=team,
-                    severity="normal" if action.priority == MessagePriority.NORMAL else "high"
+                    severity="normal" if action_priority_val == MessagePriority.NORMAL.value else "high"
                 )
             )
             
             # Send message to team thread
+            priority_val = action.priority.value if hasattr(action.priority, 'value') else action.priority
             msg = Message(
                 incident_id=incident.id,
                 thread=team,
                 sender="Strategic Commander",
                 sender_type="commander",
-                content=f"🎯 NEW ACTION [{action.priority.value.upper()}]:\n{description}\n\nReasoning: {action_data.get('reasoning', 'Investigation needed')}",
+                content=f"🎯 NEW ACTION [{priority_val.upper()}]:\n{description}\n\nReasoning: {action_data.get('reasoning', 'Investigation needed')}",
                 priority=action.priority,
-                is_critical=action.priority in [MessagePriority.CRITICAL, MessagePriority.HIGH]
+                is_critical=priority_val in ["critical", "high"]
             )
             
             await self.repo.add_message(msg)

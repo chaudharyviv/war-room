@@ -317,7 +317,7 @@ async def get_actions(
         actions = incident.actions
         
         if status:
-            actions = [a for a in actions if a.status.value == status]
+            actions = [a for a in actions if (a.status.value if hasattr(a.status, 'value') else a.status) == status]
         
         return actions
         
@@ -521,11 +521,14 @@ async def get_incident_stats(incident_id: str):
         teams_blocked = sum(1 for ts in incident.team_states.values() 
                            if ts.status == "blocked")
         
+        def _status_val(s):
+            return s.value if hasattr(s, 'value') else s
+
         actions_pending = sum(1 for a in incident.actions 
-                             if a.status == ActionStatus.PENDING)
+                             if _status_val(a.status) == ActionStatus.PENDING.value)
         
         actions_completed = sum(1 for a in incident.actions 
-                               if a.status == ActionStatus.COMPLETED)
+                               if _status_val(a.status) == ActionStatus.COMPLETED.value)
         
         return {
             "total_findings": len(findings),

@@ -19,20 +19,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _model_dict(obj):
+    """Pydantic v1/v2 compatible model serialization"""
+    if hasattr(obj, 'model_dump'):
+        return obj.model_dump()
+    return obj.dict()
+
+
+
 def serialize_datetime(obj):
-    """Helper function to serialize datetime objects to ISO format strings"""
+    """Helper function to serialize datetime/enum objects for JSONB storage"""
+    from enum import Enum
     if isinstance(obj, datetime):
         return obj.isoformat()
+    elif isinstance(obj, Enum):
+        return obj.value
     elif isinstance(obj, dict):
         return {k: serialize_datetime(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [serialize_datetime(item) for item in obj]
     elif isinstance(obj, (str, int, float, bool, type(None))):
         return obj
-    elif hasattr(obj, 'dict'):  # Pydantic model
+    elif hasattr(obj, 'model_dump'):  # Pydantic v2
+        return serialize_datetime(obj.model_dump())
+    elif hasattr(obj, 'dict'):  # Pydantic v1 fallback
         return serialize_datetime(obj.dict())
     else:
-        # For any other type, convert to string as fallback
         return str(obj)
 
 
@@ -51,16 +63,16 @@ class Repository:
                 team_states = {}
                 for thread in incident.threads:
                     if thread != "summary":
-                        team_states[thread] = TeamState(
+                        team_states[thread] = _model_dict(TeamState(
                             name=thread,
                             status=TeamStatus.STANDBY
-                        ).dict()
+                        ))
                 
                 # Serialize team states to handle datetime objects
                 team_states_serialized = serialize_datetime(team_states)
                 
                 # Serialize impact if present
-                impact_serialized = serialize_datetime(incident.impact.dict()) if incident.impact else None
+                impact_serialized = serialize_datetime(_model_dict(incident.impact)) if incident.impact else None
                 
                 db_inc = IncidentDB(
                     id=incident.id,
@@ -104,9 +116,9 @@ class Repository:
                     sender="War Room System",
                     sender_type="system",
                     content=(
-                        f"🚨 {'CRITICAL ' if incident.severity.value == 'P0' else ''}INCIDENT DECLARED\n\n"
+                        f"🚨 {'CRITICAL ' if (incident.severity.value if hasattr(incident.severity, 'value') else incident.severity) == 'P0' else ''}INCIDENT DECLARED\n\n"
                         f"**{incident.title}**\n\n"
-                        f"Severity: {incident.severity.value}\n"
+                        f"Severity: {incident.severity.value if hasattr(incident.severity, 'value') else incident.severity}\n"
                         f"Affected System: {incident.affected_system}\n"
                         f"Commander: {incident.incident_commander or 'TBD'}\n\n"
                         f"{incident.description}\n\n"
@@ -255,7 +267,7 @@ class Repository:
                 )
             except Exception as e:
                 logger.error(f"❌ Error getting incident {incident_id}: {str(e)}")
-                return None
+                raise
 
     async def update_incident(self, incident: Incident):
         """Update incident with all changes"""
@@ -278,31 +290,31 @@ class Repository:
 
                 # Update team states with serialization
                 db_inc.team_states = serialize_datetime({
-                    name: state.dict()
+                    name: _model_dict(state)
                     for name, state in incident.team_states.items()
                 })
 
                 # Update hypothesis
                 db_inc.hypothesis = serialize_datetime(
-                    incident.hypothesis.dict()
+                    _model_dict(incident.hypothesis)
                     if incident.hypothesis else None
                 )
 
                 # Update timeline
                 db_inc.timeline = serialize_datetime([
-                    event.dict()
+                    _model_dict(event)
                     for event in incident.timeline
                 ])
 
                 # Update actions
                 db_inc.actions = serialize_datetime([
-                    action.dict()
+                    _model_dict(action)
                     for action in incident.actions
                 ])
 
                 # Update impact
                 db_inc.impact = serialize_datetime(
-                    incident.impact.dict() if incident.impact else None
+                    _model_dict(incident.impact) if incident.impact else None
                 )
 
                 # Update executive summary
