@@ -190,7 +190,19 @@ Trigger commander if:
                 max_tokens=500
             )
             
-            return json.loads(response.choices[0].message.content)
+            raw = response.choices[0].message.content or ""
+            raw = raw.strip()
+            if raw.startswith("```"):
+                import re
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
+                raw = raw.strip()
+            if not raw:
+                return None
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"Classification JSON parse error: {e}")
+            return None
         except Exception as e:
             print(f"Classification error: {e}")
             return None

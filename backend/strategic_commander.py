@@ -233,7 +233,23 @@ RULES:
                 max_tokens=1500
             )
             
-            return json.loads(response.choices[0].message.content)
+            raw = response.choices[0].message.content or ""
+            raw = raw.strip()
+            
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
+                raw = raw.strip()
+            
+            if not raw:
+                logger.warning("OpenAI returned empty response, using basic analysis")
+                return self._get_basic_analysis(incident, findings)
+            
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error(f"Commander JSON parse error: {e} | Raw response start: {raw[:200] if raw else 'empty'}")
+            return self._get_basic_analysis(incident, findings)
         except Exception as e:
             logger.error(f"Commander analysis error: {e}")
             return self._get_basic_analysis(incident, findings)
